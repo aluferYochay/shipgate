@@ -1,0 +1,12 @@
+name = "shipgate"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+workers_dev = true
+
+# Set secret after deploy: wrangler secret put GEMINI_API_KEY
+# [vars] can hold non-secret config later
+
+[assets]
+directory = "../public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"

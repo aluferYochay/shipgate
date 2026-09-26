@@ -1,36 +1,63 @@
 # ShipGate
 
-**Paste English AI-agent acceptance criteria → auto-generate eval checks → (simulated) run → shareable pass/fail scorecard.**
+**Paste English AI-agent acceptance criteria → Gemini generates eval checks → live HTTP run against an agent → shareable pass/fail scorecard.**
 
-Solo MVP · Week 1 · Adaptive6 nights/weekend optionality. Client-side only; no backend.
+Solo MVP · Adaptive6 · real LLM + real agent calls (not simulated).
 
 ## Try it
 
-Open `index.html` in a browser, or serve the folder:
+- **GitHub Pages (UI):** https://aluferyochay.github.io/shipgate/
+- **Worker (API + UI once deployed):** `https://shipgate.<your-subdomain>.workers.dev`  
+  See `PARENT_NEXT_STEPS.md` if the badge says API offline / needs key.
 
-```bash
-cd shipgate && python3 -m http.server 8080
-# then visit http://localhost:8080/
+Flow:
+
+1. Paste acceptance criteria (optional: custom agent HTTPS URL)
+2. **Generate eval suite** — `POST /api/generate` via Gemini (`gemini-3.8-flash`)
+3. **Run against agent** — Worker POSTs each case to the agent (or built-in `/api/demo-agent`)
+4. Copy the **shareable scorecard** link (`#r=` hash; no DB)
+
+## Agent contract
+
+Worker sends:
+
+```json
+POST {agentUrl}
+Content-Type: application/json
+
+{ "message": "<case input>", "input": "<same>", "text": "<same>" }
 ```
 
-1. Edit (or keep) the acceptance criteria  
-2. **Generate eval suite** → **Run against agent**  
-3. Copy the **shareable scorecard** link — anyone with the link sees the same frozen result (state lives in the URL hash; no server)
+Reads reply from JSON `reply` | `response` | `message` | `output` | `text` | `content`, or raw text.
 
-## Share links
+## API
 
-After a run, the address bar becomes something like:
+| Route | Body | Response |
+|-------|------|----------|
+| `GET /api/health` | — | `{ ok, hasGeminiKey, model }` |
+| `POST /api/generate` | `{ criteria, agentUrl? }` | `{ cases: [{id,name,input,expect}], model, mode }` |
+| `POST /api/run` | `{ agentUrl, cases }` | `{ results: [{id,pass,detail,status,reply,judge}], judge, live }` |
+| `POST /api/demo-agent` | `{ message }` | `{ reply }` — refund bot with intentional bugs |
 
-`…/index.html#r=<base64url-json>`
+Secret: Cloudflare Worker secret **`GEMINI_API_KEY`** (Google AI Studio).
 
-Opening that URL restores the scorecard (pass counts, failures, agent label). Starting a new run clears the hash.
+## Local
 
-## Limits (Week 1)
+```bash
+cd worker
+npm install
+# optional for local LLM:
+# echo 'GEMINI_API_KEY=...' > .dev.vars
+npx wrangler dev
+# open http://127.0.0.1:8787/
+```
 
-- Agent “runs” are **simulated** (demo refund / RAG narratives). Custom HTTPS URLs are accepted but not called.
-- No live LLM judge, no auth, no persistence beyond the share hash.
-- Hash payloads can get long if criteria are huge; keep criteria concise for shareable links.
+## Deploy
 
-## Deploy (parent)
+Documented in **`PARENT_NEXT_STEPS.md`** (Cloudflare login + `wrangler secret put GEMINI_API_KEY` + `wrangler deploy`).
 
-Static host of this folder is enough (GitHub Pages or Vercel static). Do not require a build step.
+## Honest labels
+
+- Scorecards from a live run are marked **live HTTP** + judge mode (`gemini` or `heuristic`).
+- Shared `#r=` links are frozen snapshots.
+- Demo agent is labeled as hosted demo and includes known policy bugs on purpose.
