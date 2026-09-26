@@ -229,7 +229,7 @@ async function handleRun(request, env) {
   const useLlmJudge = Boolean(env.GEMINI_API_KEY);
 
   for (const c of cases) {
-    const one = await runOneCase(c, agentUrl, env, useLlmJudge);
+    const one = await runOneCase(c, agentUrl, env, useLlmJudge, request.url);
     results.push(one);
   }
 
@@ -243,15 +243,32 @@ async function handleRun(request, env) {
   });
 }
 
-async function runOneCase(c, agentUrl, env, useLlmJudge) {
-  let status = 0;
-  let reply = "";
-  let detail = "";
-  let fetchError = null;
-
+function isDemoAgentUrl(agentUrl, requestUrl) {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
+    const u = new URL(agentUrl);
+    const self = new URL(requestUrl);
+    const sameHost = u.hostname === self.hostname;
+    const isDemoPath = u.pathname.replace(/\/$/, "") === "/api/demo-agent";
+    return isDemoPath && (u.origin === self.origin || sameHost);
+  } catch {
+    return false;
+  }
+}
+
+async function invokeAgent(agentUrl, message, requestUrl) {
+  // Cloudflare blocks Worker→same-Worker HTTP (error 1042). Call demo inline.
+  if (isDemoAgentUrl(agentUrl, requestUrl)) {
+    return {
+      status: 200,
+      reply: demoRefundReply(message),
+      fetchError: null,
+      via: "inline-demo",
+    };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AGENT_TIMEOUT_MS);
+  try {
     const res = await fetch(agentUrl, {
       method: "POST",
       headers: {
@@ -259,21 +276,44 @@ async function runOneCase(c, agentUrl, env, useLlmJudge) {
         Accept: "application/json, text/plain",
       },
       body: JSON.stringify({
-        message: c.input,
-        input: c.input,
-        text: c.input,
+        message,
+        input: message,
+        text: message,
       }),
       signal: controller.signal,
     });
     clearTimeout(timer);
-    status = res.status;
     const text = await res.text();
-    reply = extractReply(text);
-    if (!res.ok) {
-      fetchError = `HTTP ${res.status}`;
-    }
+    return {
+      status: res.status,
+      reply: extractReply(text),
+      fetchError: res.ok ? null : `HTTP ${res.status}`,
+      via: "http",
+    };
   } catch (err) {
-    fetchError = err.name === "AbortError" ? "timeout" : String(err.message || err);
+    clearTimeout(timer);
+    return {
+      status: 0,
+      reply: "",
+      fetchError: err.name === "AbortError" ? "timeout" : String(err.message || err),
+      via: "http",
+    };
+  }
+}
+
+async function runOneCase(c, agentUrl, env, useLlmJudge, requestUrl) {
+  let status = 0;
+  let reply = "";
+  let detail = "";
+  let fetchError = null;
+
+  try {
+    const hit = await invokeAgent(agentUrl, c.input, requestUrl);
+    status = hit.status;
+    reply = hit.reply;
+    fetchError = hit.fetchError;
+  } catch (err) {
+    fetchError = String(err.message || err);
     reply = "";
   }
 
