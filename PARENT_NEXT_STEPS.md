@@ -54,7 +54,7 @@ Then Actions → **Deploy ShipGate Worker** → Run workflow
 In root `index.html` and `public/index.html`, replace the fallback:
 
 ```js
-return "https://shipgate.aluferyochay.workers.dev";
+return "https://shipgate.shipgate-app.workers.dev";
 ```
 
 with your real `*.workers.dev` URL, **or** add at top of `<head>`:
